@@ -55,7 +55,7 @@ function startProceduralMusic() {
     }, 500); 
 }
 
-// --- SISTEMA DE LEADERBOARD (backend real: Vercel + Upstash Redis) ---
+// --- SISTEMA DE LEADERBOARD ---
 async function saveScore(newName, newScore) {
     try {
         const res = await fetch('/api/save-score', {
@@ -97,7 +97,7 @@ async function displayLeaderboard() {
         tr.style.color = index === 0 ? '#fffa50' : '#fff';
 
         let tdPos = document.createElement('td'); tdPos.textContent = `#${index + 1}`;
-        let tdName = document.createElement('td'); tdName.textContent = row.name; // textContent: nunca ejecuta HTML de otros jugadores
+        let tdName = document.createElement('td'); tdName.textContent = row.name;
         let tdScore = document.createElement('td'); let strong = document.createElement('strong'); strong.textContent = row.score; tdScore.appendChild(strong);
 
         tr.appendChild(tdPos); tr.appendChild(tdName); tr.appendChild(tdScore);
@@ -125,7 +125,6 @@ function continueWithAd() {
     document.getElementById('gameOverScreen').style.display = 'none';
 
     if (!adController) {
-        // SDK de AdsGram no disponible en este entorno (p. ej. fuera de Telegram): continuar sin anuncio.
         addLog("Anuncio no disponible en este entorno.");
         grantEscapeReward();
         return;
@@ -135,19 +134,17 @@ function continueWithAd() {
 
     adController.show()
         .then(() => {
-            // El usuario vio el anuncio hasta el final (o lo cerró en formato interstitial)
             document.getElementById('adLoadingScreen').style.display = 'none';
             grantEscapeReward();
         })
         .catch(() => {
-            // Error al reproducir el anuncio o no había inventario disponible
             document.getElementById('adLoadingScreen').style.display = 'none';
             addLog("No se pudo reproducir el anuncio.");
             document.getElementById('gameOverScreen').style.display = 'flex';
         });
 }
 
-// --- AdsGram: bloque de recompensa (blockId 38546) ---
+// --- AdsGram ---
 let adController = null;
 function initAdsgram() {
     if (window.Adsgram) {
@@ -161,7 +158,6 @@ function grantEscapeReward() {
     gameActive = true;
 }
 
-// --- Inmunidad temporal tras ver el anuncio (para poder escapar sin recibir daño) ---
 function activateEscapeImmunity(durationMs) {
     player.invulnUntil = Date.now() + durationMs;
     addLog(`Inmunidad de escape activada: ${Math.round(durationMs / 1000)}s.`);
@@ -170,8 +166,6 @@ function activateEscapeImmunity(durationMs) {
 // --- VARIABLES JUEGO ---
 let gameActive = false; let keys = {}; let wave = 1; let waveTimer = 0; let score = 0; let playerName = "CIENTIFICO";
 
-// ID persistente por navegador (no depende del nombre que escriba, así distinguimos
-// jugadores reales aunque dos elijan el mismo alias en el gateway).
 function getPlayerId() {
     let id = localStorage.getItem('biomass_player_id');
     if (!id) {
@@ -187,12 +181,17 @@ let player = {
     worldX: 0, worldY: 0, screenX: canvas.width / 2, screenY: canvas.height / 2,
     radius: 12, baseSpeed: 3.0, speed: 3.0, hp: 100, maxHp: 100,
     level: 1, dna: 0, dnaNeeded: 10,
-    mutations: { acido: 0, puas: 0, alas: 0, regeneracion: 0, pulsoMejora: 1 },
+    mutations: { acido: 0, puas: 0, alas: 0, regeneracion: 0, pulsoMejora: 1, bossAbanico: 0 },
     pulseCooldown: 0, pulseActiveVisual: 0, kameTimer: 0, invulnUntil: 0, lineaElegida: null
 };
 
 let dnaPool = []; let enemies = []; let projectiles = []; let powerups = []; let damageNumbers = [];
 let acidTimer = 0; let regenTimer = 0;
+
+// --- NUEVAS LISTAS PARA EL BOSS ---
+let bossProjectiles = [];
+let coverBlocks = []; 
+let activeBoss = null;
 
 const MUTACIONES_DATA = [
     { id: 'acido', nombre: 'Brazo Químico', desc: 'Tu brazo desgarra la bata y escupe ácido a los infectados cercanos.', linea: 'A' },
@@ -210,7 +209,7 @@ function initLoadingScreen() {
     const startBtn = document.getElementById('startBtn');
 
     let progress = 0;
-    const duration = 3500; // ms totales para "apreciar la imagen"
+    const duration = 3500;
     const stepMs = 60;
     const increment = 100 / (duration / stepMs);
 
@@ -232,8 +231,6 @@ function dismissLoadingScreen() {
     tryAutoLogin();
 }
 
-// Si este navegador ya tiene un playerId conocido por el servidor, salta el gateway
-// del nombre directo al laboratorio. Si es nuevo (o el servidor no responde), pide el ID.
 async function tryAutoLogin() {
     document.getElementById('checkingAuth').style.display = 'flex';
     document.getElementById('idGateway').style.display = 'none';
@@ -255,13 +252,12 @@ async function tryAutoLogin() {
         console.error('auto-login check failed:', err);
     }
 
-    // Navegador nuevo (o backend inaccesible): pide el nombre como antes.
     document.getElementById('checkingAuth').style.display = 'none';
     document.getElementById('idGateway').style.display = 'block';
     document.getElementById('playerName').focus();
 }
 
-// --- PANEL DE CLASIFICACIÓN Y JUGADORES RECIENTES (dentro del menú) ---
+// --- CLASIFICACIÓN ---
 async function loadRankingPanel() {
     const scoreBody = document.getElementById('menuLeaderboardBody');
     const recentList = document.getElementById('recentPlayersList');
@@ -320,7 +316,6 @@ function timeAgo(timestamp) {
     return `hace ${Math.floor(diffH / 24)}d`;
 }
 
-// --- STATE 1 -> STATE 2: Scientist ID Gateway ---
 document.getElementById('playerName').addEventListener('input', e => {
     document.getElementById('accederBtn').disabled = e.target.value.trim() === '';
 });
@@ -334,7 +329,7 @@ async function validateAndEnter() {
     if (!val) {
         errorEl.classList.add('show');
         input.classList.remove('input-error');
-        void input.offsetWidth; // restart animation if triggered again
+        void input.offsetWidth;
         input.classList.add('input-error');
         return;
     }
@@ -352,7 +347,7 @@ async function validateAndEnter() {
         });
         if (res.ok) {
             const data = await res.json();
-            confirmedName = data.player; // nombre ya saneado por el backend
+            confirmedName = data.player;
             if (data.playerId) { playerId = data.playerId; localStorage.setItem('biomass_player_id', playerId); }
         } else {
             addLog('No se pudo verificar contra el servidor, continuando en modo local.');
@@ -371,7 +366,6 @@ async function validateAndEnter() {
     btn.innerText = 'ACCEDER AL LABORATORIO';
 }
 
-// --- MENU -> TUTORIAL: leaving the hub opens the mission briefing before gameplay ---
 let gameLoopStarted = false;
 function ensureGameLoopRunning() {
     if (!gameLoopStarted) {
@@ -387,7 +381,6 @@ function startFromMenu() {
     ensureGameLoopRunning();
 }
 
-// --- TUTORIAL -> GAMEPLAY: dismissing the briefing actually starts the mission ---
 function beginMission() {
     document.getElementById('tutorialModal').style.display = 'none';
     initAudioContext();
@@ -400,8 +393,9 @@ function resetGameState() {
     score = 0; wave = 1; waveTimer = 0;
     player.worldX = 0; player.worldY = 0; player.hp = 100; player.level = 1; player.dna = 0; player.dnaNeeded = 10;
     player.speed = player.baseSpeed; player.kameTimer = 0; player.invulnUntil = 0; player.lineaElegida = null;
-    player.mutations = { acido: 0, puas: 0, alas: 0, regeneracion: 0, pulsoMejora: 1 };
+    player.mutations = { acido: 0, puas: 0, alas: 0, regeneracion: 0, pulsoMejora: 1, bossAbanico: 0 };
     enemies = []; dnaPool = []; projectiles = []; powerups = []; damageNumbers = [];
+    bossProjectiles = []; coverBlocks = []; activeBoss = null;
     document.getElementById('ui-mutations').innerText = "Estado Físico: Humano Normal";
 }
 
@@ -430,7 +424,7 @@ displayLeaderboard();
 window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ' || e.code === 'Space') triggerPulse(); });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
-// --- JOYSTICK VIRTUAL (controles táctiles) ---
+// --- JOYSTICK VIRTUAL ---
 let joystickVector = { x: 0, y: 0 };
 let joystickActive = false;
 let joystickTouchId = null;
@@ -494,16 +488,13 @@ function initJoystick() {
     base.addEventListener('touchmove', handleMove, { passive: false });
     base.addEventListener('touchend', handleEnd);
     base.addEventListener('touchcancel', handleEnd);
-    // soporte de mouse (útil para probar el joystick en escritorio)
     base.addEventListener('mousedown', handleStart);
     window.addEventListener('mousemove', e => { if (joystickActive) handleMove(e); });
     window.addEventListener('mouseup', handleEnd);
 }
 initJoystick();
 
-// --- PANTALLA COMPLETA ---
 function toggleFullscreen() {
-    const btn = document.getElementById('fullscreenBtn');
     if (!document.fullscreenElement) {
         (document.documentElement.requestFullscreen?.() || Promise.resolve())
             .then(() => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); })
@@ -517,7 +508,6 @@ document.addEventListener('fullscreenchange', () => {
     if (btn) btn.innerText = document.fullscreenElement ? '⤢' : '⛶';
 });
 
-// --- AVISO DE ROTAR DISPOSITIVO ---
 let rotateDismissed = false;
 function dismissRotateOverlay() {
     rotateDismissed = true;
@@ -537,10 +527,37 @@ function createDamageNumber(x, y, amount, isSpecial = false) {
     damageNumbers.push({ worldX: x, worldY: y, text: Math.round(amount), life: 35, color: isSpecial ? '#fffa50' : '#ff4757', size: isSpecial ? 20 : 14 });
 }
 
+// --- PULSO ELECTROMAGNÉTICO MEJORADO ---
 function triggerPulse() {
     if (!gameActive || player.pulseCooldown > 0) return;
     playSound('pulse'); player.pulseCooldown = 180; player.pulseActiveVisual = 15;
-    let radius = 100 + (player.mutations.pulsoMejora * 25); let force = 50 + (player.mutations.pulsoMejora * 15);
+    
+    let radius = 100 + (player.mutations.pulsoMejora * 25); 
+    let force = 50 + (player.mutations.pulsoMejora * 15);
+    
+    // Si elegimos defensa (Línea B) y derrotamos al Boss, el pulso se sobrecarga
+    let esDefensaConBoss = player.mutations.bossAbanico > 0 && player.mutations.acido === 0;
+
+    if (esDefensaConBoss) {
+        radius *= 1.4; // Radio del pulso un 40% mayor
+        force *= 1.5;  // Fuerza de empuje aumentada un 50%
+        
+        // ¡Disparamos 8 espinas radiales del Boss en un ángulo de 360 grados!
+        let numSpikes = 8;
+        for (let i = 0; i < numSpikes; i++) {
+            let angle = (i * (Math.PI * 2)) / numSpikes;
+            projectiles.push({
+                worldX: player.worldX,
+                worldY: player.worldY,
+                vx: Math.cos(angle) * 8.5,
+                vy: Math.sin(angle) * 8.5,
+                radius: 6,
+                isBossCopy: true // Identificador visual
+            });
+        }
+        addLog("🛡️ ¡Nova de Espinas Desatada!");
+    }
+    
     enemies.forEach(e => {
         let dx = e.worldX - player.worldX; let dy = e.worldY - player.worldY;
         if (Math.hypot(dx, dy) < radius) {
@@ -549,14 +566,35 @@ function triggerPulse() {
             let dmg = 2 + player.mutations.pulsoMejora * 2; e.hp -= dmg; createDamageNumber(e.worldX, e.worldY, dmg, true);
         }
     });
+
+    if (activeBoss) {
+        let dx = activeBoss.worldX - player.worldX;
+        let dy = activeBoss.worldY - player.worldY;
+        if (Math.hypot(dx, dy) < radius) {
+            let dmg = (2 + player.mutations.pulsoMejora * 2) * 2;
+            activeBoss.hp -= dmg;
+            createDamageNumber(activeBoss.worldX, activeBoss.worldY, dmg, true);
+        }
+    }
     checkEnemyDeaths();
 }
 
+// --- GENERACIÓN DE OLEADAS Y BOSS ---
 function spawnWave() {
+    if (wave % 15 === 0) {
+        spawnBoss();
+        return;
+    }
+
     let qty = 4 + wave * 2;
     for (let i = 0; i < qty; i++) {
         let angle = Math.random() * Math.PI * 2; let dist = 450 + Math.random() * 150; 
-        enemies.push({ worldX: player.worldX + Math.cos(angle) * dist, worldY: player.worldY + Math.sin(angle) * dist, radius: 12, hp: 2 + wave, maxHp: 2 + wave, speed: 1.3 + Math.random() * 1.1, color: '#ff2a2a' });
+        enemies.push({ 
+            worldX: player.worldX + Math.cos(angle) * dist, 
+            worldY: player.worldY + Math.sin(angle) * dist, 
+            radius: 12, hp: 2 + wave, maxHp: 2 + wave, 
+            speed: 1.3 + Math.random() * 1.1, color: '#ff2a2a' 
+        });
     }
     if (Math.random() > 0.3) {
         let types = ['heal', 'magnet', 'nuke', 'kame'];
@@ -564,11 +602,88 @@ function spawnWave() {
     }
 }
 
+function spawnBoss() {
+    addLog("⚠️ ALERTA DE AMENAZA BIOMÁSICA GIGANTE ACERCÁNDOSE ⚠️");
+    playSound('nuke');
+
+    let angle = Math.random() * Math.PI * 2;
+    let dist = 500;
+    
+    activeBoss = {
+        worldX: player.worldX + Math.cos(angle) * dist,
+        worldY: player.worldY + Math.sin(angle) * dist,
+        radius: 48,
+        hp: 150 + (wave * 15),
+        maxHp: 150 + (wave * 15),
+        speed: 1.0,
+        color: '#8b0000',
+        phase: 1,
+        shootCooldown: 0,
+        attackTimer: 0,
+        isChargingOnda: false,
+        ondaChargeProgress: 0,
+        ondaRadiusVisual: 0
+    };
+}
+
 function checkEnemyDeaths() {
     enemies = enemies.filter(e => {
         if(e.hp <= 0) { dnaPool.push({ worldX: e.worldX, worldY: e.worldY, value: 2 }); score += 15 * wave; return false; }
         return true;
     });
+
+    if (activeBoss && activeBoss.hp <= 0) {
+        // Drop masivo de ADN
+        for (let i = 0; i < 15; i++) {
+            dnaPool.push({ 
+                worldX: activeBoss.worldX + (Math.random() - 0.5) * 60, 
+                worldY: activeBoss.worldY + (Math.random() - 0.5) * 60, 
+                value: 5 
+            });
+        }
+        score += 1000 * wave;
+        
+        // --- ADQUISICIÓN DE RECOMPENSA CORREGIDA ---
+        player.mutations.bossAbanico++; 
+        
+        // Comprobar si tiene el brazo de ácido (Línea Ofensiva) o no (Línea Defensiva)
+        if (player.mutations.acido > 0) {
+            addLog("🧬 ¡GENOMA ASIMILADO! Has absorbido su ADN de dispersión. ¡Tu brazo químico ahora dispara en abanico!");
+        } else {
+            addLog("🛡️ ¡GENOMA ASIMILADO! Tu sistema de defensa copia al enemigo. ¡Tu pulso [Espacio] ahora emite una Nova de Espinas!");
+        }
+        
+        actualizarListaMutacionesUI();
+        playSound('lvl');
+        activeBoss = null;
+        coverBlocks = [];
+    }
+}
+
+function isPlayerCoveredFromBoss() {
+    if (!activeBoss) return false;
+    
+    let dx = activeBoss.worldX - player.worldX;
+    let dy = activeBoss.worldY - player.worldY;
+    let distToBoss = Math.hypot(dx, dy);
+    
+    for (let block of coverBlocks) {
+        let bx = block.worldX - player.worldX;
+        let by = block.worldY - player.worldY;
+        let distToBlock = Math.hypot(bx, by);
+        
+        if (distToBlock < distToBoss) {
+            let angleToBoss = Math.atan2(dy, dx);
+            let angleToBlock = Math.atan2(by, bx);
+            let angleDiff = Math.abs(angleToBoss - angleToBlock);
+            if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+            
+            if (angleDiff < 0.25) { 
+                return true; 
+            }
+        }
+    }
+    return false;
 }
 
 function update() {
@@ -596,6 +711,14 @@ function update() {
             let scrX = e.worldX - player.worldX + player.screenX; let scrY = e.worldY - player.worldY + player.screenY;
             if (scrX > player.screenX && scrX < player.screenX + 500 && Math.abs(scrY - player.screenY) < 40) { e.hp -= 0.5; if(Math.random() > 0.7) createDamageNumber(e.worldX, e.worldY, 5, true); }
         });
+        if (activeBoss) {
+            let scrX = activeBoss.worldX - player.worldX + player.screenX;
+            let scrY = activeBoss.worldY - player.worldY + player.screenY;
+            if (scrX > player.screenX && scrX < player.screenX + 500 && Math.abs(scrY - player.screenY) < activeBoss.radius) { 
+                activeBoss.hp -= 0.8; 
+                if(Math.random() > 0.7) createDamageNumber(activeBoss.worldX, activeBoss.worldY, 8, true); 
+            }
+        }
         checkEnemyDeaths();
     }
 
@@ -606,6 +729,7 @@ function update() {
         if (regenTimer >= 120) { player.hp = Math.min(player.maxHp, player.hp + (0.6 * player.mutations.regeneracion)); regenTimer = 0; }
     }
 
+    // --- LÓGICA DE ENEMIGOS COMUNES ---
     for (let i = 0; i < enemies.length; i++) {
         let e1 = enemies[i];
         let dx = player.worldX - e1.worldX; let dy = player.worldY - e1.worldY; let dist = Math.hypot(dx, dy);
@@ -618,22 +742,190 @@ function update() {
             if (!isImmune) player.hp -= 0.5;
             if(e1.hp <= 0) { dnaPool.push({ worldX: e1.worldX, worldY: e1.worldY, value: 2 }); score += 15 * wave; enemies.splice(i, 1); i--; }
             
-            if (player.hp <= 0) {
-                player.hp = 0;
-                endGame();
-                return;
+            if (player.hp <= 0) { player.hp = 0; endGame(); return; }
+        }
+    }
+
+    // --- LÓGICA EXCLUSIVA DEL BOSS ---
+    if (activeBoss) {
+        let dx = player.worldX - activeBoss.worldX;
+        let dy = player.worldY - activeBoss.worldY;
+        let dist = Math.hypot(dx, dy);
+
+        if (activeBoss.phase === 1 && activeBoss.hp < activeBoss.maxHp * 0.5) {
+            activeBoss.phase = 2;
+            addLog("⚠️ ¡ADVERTENCIA! El jefe mutó a FASE 2. ¡Busca cobertura tras los bloques!");
+            playSound('lvl');
+            spawnCoverBlocks();
+        }
+
+        if (!activeBoss.isChargingOnda) {
+            activeBoss.worldX += (dx / (dist || 1)) * activeBoss.speed;
+            activeBoss.worldY += (dy / (dist || 1)) * activeBoss.speed;
+        }
+
+        if (dist < player.radius + activeBoss.radius) {
+            let isImmune = player.invulnUntil && Date.now() < player.invulnUntil;
+            if (!isImmune) player.hp -= 2; 
+            if (player.hp <= 0) { player.hp = 0; endGame(); return; }
+        }
+
+        activeBoss.shootCooldown--;
+        activeBoss.attackTimer++;
+
+        if (activeBoss.shootCooldown <= 0 && !activeBoss.isChargingOnda) {
+            activeBoss.shootCooldown = 120; 
+            playSound('laser');
+            
+            let numProjectiles = 16;
+            let gapIndex1 = Math.floor(Math.random() * numProjectiles);
+            let gapIndex2 = (gapIndex1 + 1) % numProjectiles; 
+
+            for (let i = 0; i < numProjectiles; i++) {
+                if (i === gapIndex1 || i === gapIndex2) continue; 
+                
+                let angle = (i * (Math.PI * 2)) / numProjectiles;
+                bossProjectiles.push({
+                    worldX: activeBoss.worldX,
+                    worldY: activeBoss.worldY,
+                    vx: Math.cos(angle) * 4.5,
+                    vy: Math.sin(angle) * 4.5,
+                    radius: 8
+                });
+            }
+        }
+
+        if (activeBoss.phase === 2) {
+            if (activeBoss.attackTimer >= 480 && !activeBoss.isChargingOnda) {
+                activeBoss.isChargingOnda = true;
+                activeBoss.ondaChargeProgress = 0;
+                addLog("☢️ ¡El Jefe está canalizando una ONDA DE CHOQUE LETAL! ¡Cúbrete detrás de un bloque!");
+                spawnCoverBlocks(); 
+            }
+
+            if (activeBoss.isChargingOnda) {
+                activeBoss.ondaChargeProgress += 0.5; 
+                
+                if (Math.floor(activeBoss.ondaChargeProgress) % 20 === 0) {
+                    playSound('pulse');
+                }
+
+                if (activeBoss.ondaChargeProgress >= 100) {
+                    playSound('nuke');
+                    activeBoss.isChargingOnda = false;
+                    activeBoss.attackTimer = 0;
+                    activeBoss.ondaRadiusVisual = 600; 
+
+                    if (isPlayerCoveredFromBoss()) {
+                        addLog("🛡️ ¡Bloqueaste la onda expansiva usando la cobertura!");
+                        playSound('hit');
+                    } else {
+                        let isImmune = player.invulnUntil && Date.now() < player.invulnUntil;
+                        if (!isImmune) {
+                            player.hp -= 65; 
+                            createDamageNumber(player.worldX, player.worldY, 65, true);
+                            addLog("💥 ¡Impacto directo de la onda expansiva! Daño severo.");
+                        }
+                        if (player.hp <= 0) { player.hp = 0; endGame(); return; }
+                    }
+                }
             }
         }
     }
 
-    if (player.mutations.acido > 0 && enemies.length > 0) {
+    for (let i = coverBlocks.length - 1; i >= 0; i--) {
+        let block = coverBlocks[i];
+        block.life--;
+        if (block.life <= 0) {
+            coverBlocks.splice(i, 1);
+        }
+    }
+
+    function spawnCoverBlocks() {
+        coverBlocks = []; 
+        let qty = 3;
+        for (let i = 0; i < qty; i++) {
+            let angleToBoss = Math.atan2(activeBoss.worldY - player.worldY, activeBoss.worldX - player.worldX);
+            let blockAngle = angleToBoss - 0.5 + (i * 0.5); 
+            let dist = 120 + Math.random() * 40; 
+
+            coverBlocks.push({
+                worldX: player.worldX + Math.cos(blockAngle) * dist,
+                worldY: player.worldY + Math.sin(blockAngle) * dist,
+                width: 32,
+                height: 32,
+                life: 450 
+            });
+        }
+    }
+
+    for (let i = bossProjectiles.length - 1; i >= 0; i--) {
+        let p = bossProjectiles[i];
+        p.worldX += p.vx;
+        p.worldY += p.vy;
+
+        let hitBlock = false;
+        for (let block of coverBlocks) {
+            let dx = p.worldX - block.worldX;
+            let dy = p.worldY - block.worldY;
+            if (Math.abs(dx) < block.width / 2 && Math.abs(dy) < block.height / 2) {
+                hitBlock = true;
+                break;
+            }
+        }
+
+        if (hitBlock) {
+            bossProjectiles.splice(i, 1);
+            continue;
+        }
+
+        let dist = Math.hypot(p.worldX - player.worldX, p.worldY - player.worldY);
+        if (dist < p.radius + player.radius) {
+            let isImmune = player.invulnUntil && Date.now() < player.invulnUntil;
+            if (!isImmune) {
+                player.hp -= 10;
+                createDamageNumber(player.worldX, player.worldY, 10);
+                playSound('hit');
+            }
+            bossProjectiles.splice(i, 1);
+            if (player.hp <= 0) { player.hp = 0; endGame(); return; }
+            continue;
+        }
+
+        if (Math.hypot(p.worldX - player.worldX, p.worldY - player.worldY) > 800) {
+            bossProjectiles.splice(i, 1);
+        }
+    }
+
+    // --- ATAQUES DEL JUGADOR (CON SOPORTE DE ABANICO DE BOSS) ---
+    if (player.mutations.acido > 0 && (enemies.length > 0 || activeBoss)) {
         acidTimer++; let cooldownTarget = Math.max(10, 50 - (player.mutations.acido * 8));
         if (acidTimer >= cooldownTarget) {
-            let closest = null; let minDist = Infinity;
-            enemies.forEach(e => { let d = Math.hypot(e.worldX - player.worldX, e.worldY - player.worldY); if (d < minDist) { minDist = d; closest = e; } });
-            if (closest && minDist < 350) {
-                let angle = Math.atan2(closest.worldY - player.worldY, closest.worldX - player.worldX);
-                projectiles.push({ worldX: player.worldX, worldY: player.worldY, vx: Math.cos(angle) * 7, vy: Math.sin(angle) * 7, radius: 5 });
+            let target = null; let minDist = Infinity;
+            
+            enemies.forEach(e => { let d = Math.hypot(e.worldX - player.worldX, e.worldY - player.worldY); if (d < minDist) { minDist = d; target = e; } });
+            if (activeBoss) {
+                let d = Math.hypot(activeBoss.worldX - player.worldX, activeBoss.worldY - player.worldY);
+                if (d < minDist) { minDist = d; target = activeBoss; }
+            }
+
+            if (target && minDist < 350) {
+                let baseAngle = Math.atan2(target.worldY - player.worldY, target.worldX - player.worldX);
+                
+                // Si el jugador asimiló el ADN del Boss en Senda Ofensiva (disparo en abanico)
+                if (player.mutations.bossAbanico > 0) {
+                    let conteoDisparos = player.mutations.bossAbanico === 1 ? 3 : 5; 
+                    let separacionAngular = 0.25;
+
+                    for (let i = 0; i < conteoDisparos; i++) {
+                        let offset = (i - (conteoDisparos - 1) / 2) * separacionAngular;
+                        let angle = baseAngle + offset;
+                        projectiles.push({ worldX: player.worldX, worldY: player.worldY, vx: Math.cos(angle) * 7.5, vy: Math.sin(angle) * 7.5, radius: 5 });
+                    }
+                } else {
+                    projectiles.push({ worldX: player.worldX, worldY: player.worldY, vx: Math.cos(baseAngle) * 7, vy: Math.sin(baseAngle) * 7, radius: 5 });
+                }
+                
                 playSound('laser');
             }
             acidTimer = 0;
@@ -642,14 +934,30 @@ function update() {
 
     for (let i = projectiles.length - 1; i >= 0; i--) {
         let p = projectiles[i]; p.worldX += p.vx; p.worldY += p.vy;
+        let hit = false;
+
         for (let j = enemies.length - 1; j >= 0; j--) {
             let e = enemies[j];
             if (Math.hypot(p.worldX - e.worldX, p.worldY - e.worldY) < p.radius + e.radius) {
-                let dmgBase = 1 + (player.mutations.acido * 0.5); e.hp -= dmgBase; createDamageNumber(e.worldX, e.worldY, dmgBase);
+                // Las espinas radiales del Boss disparadas por el jugador hacen más daño base
+                let dmgBase = p.isBossCopy ? 5 : (1 + (player.mutations.acido * 0.5)); 
+                e.hp -= dmgBase; 
+                createDamageNumber(e.worldX, e.worldY, dmgBase, p.isBossCopy);
                 projectiles.splice(i, 1); playSound('hit');
                 if (e.hp <= 0) { dnaPool.push({ worldX: e.worldX, worldY: e.worldY, value: 2 }); enemies.splice(j, 1); score += 15 * wave;}
-                break;
+                hit = true; break;
             }
+        }
+
+        if (hit) continue;
+
+        if (activeBoss && Math.hypot(p.worldX - activeBoss.worldX, p.worldY - activeBoss.worldY) < p.radius + activeBoss.radius) {
+            let dmgBase = p.isBossCopy ? 8 : (1 + (player.mutations.acido * 0.5));
+            activeBoss.hp -= dmgBase;
+            createDamageNumber(activeBoss.worldX, activeBoss.worldY, dmgBase, p.isBossCopy);
+            projectiles.splice(i, 1);
+            playSound('hit');
+            checkEnemyDeaths();
         }
     }
 
@@ -659,7 +967,13 @@ function update() {
             playSound('powerup');
             if (pu.type === 'heal') { player.hp = Math.min(player.maxHp, player.hp + 35); addLog("Kit médico aplicado."); }
             else if (pu.type === 'magnet') { dnaPool.forEach(d => d.magnetized = true); addLog("Atracción magnética de biomasa activada."); }
-            else if (pu.type === 'nuke') { playSound('nuke'); enemies.forEach(e => { e.hp = 0; createDamageNumber(e.worldX, e.worldY, 99, true); }); checkEnemyDeaths(); addLog("PELIGRO: Detonación térmica ejecutada."); }
+            else if (pu.type === 'nuke') { 
+                playSound('nuke'); 
+                enemies.forEach(e => { e.hp = 0; createDamageNumber(e.worldX, e.worldY, 99, true); }); 
+                if (activeBoss) { activeBoss.hp -= 50; createDamageNumber(activeBoss.worldX, activeBoss.worldY, 50, true); }
+                checkEnemyDeaths(); 
+                addLog("PELIGRO: Detonación térmica ejecutada."); 
+            }
             else if (pu.type === 'kame') { playSound('kame'); player.kameTimer = 180; addLog("Cañón de iones desatado."); }
             powerups.splice(i, 1);
         }
@@ -710,7 +1024,11 @@ function render() {
 
     projectiles.forEach(p => {
         let scrX = p.worldX - player.worldX + player.screenX; let scrY = p.worldY - player.worldY + player.screenY;
-        ctx.fillStyle = '#a3cb38'; ctx.beginPath(); ctx.arc(scrX, scrY, p.radius, 0, Math.PI*2); ctx.fill();
+        if (p.isBossCopy) {
+            ctx.fillStyle = '#ff4757'; ctx.beginPath(); ctx.arc(scrX, scrY, p.radius + 1, 0, Math.PI*2); ctx.fill();
+        } else {
+            ctx.fillStyle = '#a3cb38'; ctx.beginPath(); ctx.arc(scrX, scrY, p.radius, 0, Math.PI*2); ctx.fill();
+        }
     });
 
     enemies.forEach(e => {
@@ -720,6 +1038,86 @@ function render() {
         ctx.fillStyle = '#800000'; ctx.beginPath(); ctx.arc(scrX-3, scrY-3, 3, 0, Math.PI*2); ctx.fill();
     });
 
+    coverBlocks.forEach(block => {
+        let scrX = block.worldX - player.worldX + player.screenX;
+        let scrY = block.worldY - player.worldY + player.screenY;
+        ctx.fillStyle = '#57606f';
+        ctx.fillRect(scrX - block.width / 2, scrY - block.height / 2, block.width, block.height);
+        ctx.strokeStyle = '#54a0ff';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(scrX - block.width / 2 + 3, scrY - block.height / 2 + 3, block.width - 6, block.height - 6);
+    });
+
+    if (activeBoss) {
+        let scrX = activeBoss.worldX - player.worldX + player.screenX;
+        let scrY = activeBoss.worldY - player.worldY + player.screenY;
+
+        if (activeBoss.isChargingOnda) {
+            ctx.strokeStyle = `rgba(255, 71, 87, ${Math.sin(Date.now() * 0.01) * 0.5 + 0.5})`;
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.arc(scrX, scrY, activeBoss.radius + 30, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ff4757';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`CARGANDO ONDA: ${Math.floor(activeBoss.ondaChargeProgress)}%`, scrX, scrY - activeBoss.radius - 15);
+        }
+
+        ctx.fillStyle = activeBoss.color;
+        ctx.beginPath();
+        ctx.arc(scrX, scrY, activeBoss.radius, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = activeBoss.phase === 2 ? '#ff4757' : '#ff9f43';
+        ctx.beginPath();
+        ctx.arc(scrX, scrY, activeBoss.radius * 0.4, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.arc(scrX - 10, scrY - 10, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ff3838';
+        ctx.beginPath();
+        ctx.arc(scrX - 12, scrY - 10, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        let barW = 120;
+        let barH = 10;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(scrX - barW / 2, scrY - activeBoss.radius - 35, barW, barH);
+        ctx.fillStyle = '#ff4d4d';
+        ctx.fillRect(scrX - barW / 2, scrY - activeBoss.radius - 35, barW * (activeBoss.hp / activeBoss.maxHp), barH);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(scrX - barW / 2, scrY - activeBoss.radius - 35, barW, barH);
+    }
+
+    bossProjectiles.forEach(p => {
+        let scrX = p.worldX - player.worldX + player.screenX;
+        let scrY = p.worldY - player.worldY + player.screenY;
+        ctx.fillStyle = '#ff3838'; 
+        ctx.beginPath();
+        ctx.arc(scrX, scrY, p.radius, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffb8b8';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    });
+
+    if (activeBoss && activeBoss.ondaRadiusVisual > 0) {
+        let scrX = activeBoss.worldX - player.worldX + player.screenX;
+        let scrY = activeBoss.worldY - player.worldY + player.screenY;
+        ctx.strokeStyle = `rgba(255, 71, 87, ${activeBoss.ondaRadiusVisual / 600})`;
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.arc(scrX, scrY, 600 - activeBoss.ondaRadiusVisual, 0, Math.PI * 2);
+        ctx.stroke();
+        activeBoss.ondaRadiusVisual -= 15;
+    }
+
     if (player.kameTimer > 0) {
         let grad = ctx.createLinearGradient(player.screenX, player.screenY, player.screenX + 500, player.screenY);
         grad.addColorStop(0, "rgba(0, 255, 255, 0.9)"); grad.addColorStop(0.5, "rgba(255, 255, 255, 1)"); grad.addColorStop(1, "rgba(0, 150, 255, 0)");
@@ -728,6 +1126,7 @@ function render() {
 
     if (player.pulseActiveVisual > 0) {
         let radioDinamico = 100 + (player.mutations.pulsoMejora * 25);
+        if (player.mutations.bossAbanico > 0 && player.mutations.acido === 0) radioDinamico *= 1.4;
         ctx.strokeStyle = 'rgba(84, 160, 255, ' + (player.pulseActiveVisual / 15) + ')'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(player.screenX, player.screenY, radioDinamico - (player.pulseActiveVisual * 4), 0, Math.PI*2); ctx.stroke();
     }
 
@@ -741,9 +1140,6 @@ function render() {
         ctx.beginPath(); ctx.arc(player.screenX, player.screenY, player.radius + 10 + pulse, 0, Math.PI*2); ctx.stroke();
     }
 
-    // --- RENDERIZADO DEL CIENTÍFICO MUTANTE ---
-    
-    // 1. Alas de Energía (Fondo)
     if (player.mutations.alas > 0) {
         ctx.fillStyle = 'rgba(84, 160, 255, 0.6)';
         let wingW = 15 + player.mutations.alas * 5 + Math.sin(Date.now() * 0.01) * 3;
@@ -751,16 +1147,13 @@ function render() {
         ctx.beginPath(); ctx.moveTo(player.screenX + 8, player.screenY); ctx.lineTo(player.screenX + 8 + wingW, player.screenY - 15); ctx.lineTo(player.screenX + 12, player.screenY + 10); ctx.fill();
     }
 
-    // 2. Bata de Laboratorio (Cuerpo base)
     ctx.fillStyle = (player.mutations.regeneracion > 0) ? '#d1ffd1' : '#ffffff'; 
     ctx.fillRect(player.screenX - 10, player.screenY - 8, 20, 22);
     
-    // Núcleo regenerativo brillando a través de la bata
     if(player.mutations.regeneracion > 0) {
         ctx.fillStyle = '#4af626'; ctx.beginPath(); ctx.arc(player.screenX, player.screenY + 3, 4 + Math.sin(Date.now()*0.005)*2, 0, Math.PI*2); ctx.fill();
     }
 
-    // 3. Púas saliendo del traje
     if (player.mutations.puas > 0) { 
         ctx.fillStyle = '#ff9f43';
         let puaSize = 4 + player.mutations.puas * 2;
@@ -768,26 +1161,20 @@ function render() {
         ctx.beginPath(); ctx.moveTo(player.screenX + 10, player.screenY); ctx.lineTo(player.screenX + 10 + puaSize, player.screenY - puaSize); ctx.lineTo(player.screenX + 5, player.screenY - 5); ctx.fill();
     }
 
-    // 4. Cabeza (Humano)
-    ctx.fillStyle = '#ffccaa'; // Color piel
+    ctx.fillStyle = '#ffccaa';
     ctx.beginPath(); ctx.arc(player.screenX, player.screenY - 12, 7, 0, Math.PI*2); ctx.fill();
-    // Lentes de científico
     ctx.fillStyle = '#333';
     ctx.fillRect(player.screenX - 6, player.screenY - 14, 4, 3); ctx.fillRect(player.screenX + 2, player.screenY - 14, 4, 3);
 
-    // 5. Brazo Mutante Químico (Ácido)
     if (player.mutations.acido > 0) { 
         ctx.fillStyle = '#4af626'; ctx.beginPath(); 
         ctx.arc(player.screenX + 14, player.screenY + 2, 6 + player.mutations.acido, 0, Math.PI*2); ctx.fill();
         ctx.fillStyle = '#27ae60'; ctx.beginPath(); ctx.arc(player.screenX + 14, player.screenY + 2, 3, 0, Math.PI*2); ctx.fill();
     } else {
-        // Brazo normal derecho
         ctx.fillStyle = '#ffffff'; ctx.fillRect(player.screenX + 10, player.screenY - 8, 4, 12);
     }
-    // Brazo normal izquierdo
     ctx.fillStyle = '#ffffff'; ctx.fillRect(player.screenX - 14, player.screenY - 8, 4, 12);
 
-    // Textos de daño
     damageNumbers.forEach(dn => {
         let scrX = dn.worldX - player.worldX + player.screenX; let scrY = dn.worldY - player.worldY + player.screenY;
         ctx.fillStyle = dn.color; ctx.font = `bold ${dn.size}px monospace`; ctx.fillText(dn.text, scrX, scrY);
@@ -795,7 +1182,7 @@ function render() {
 }
 
 function checkLevelUp() {
-    if (!gameActive) return; // ya hay un modal de mutación abierto/resolviéndose: no dispares otro en el mismo frame
+    if (!gameActive) return;
     if (player.dna >= player.dnaNeeded) {
         playSound('lvl'); player.dna -= player.dnaNeeded; player.level++; player.dnaNeeded = Math.floor(player.dnaNeeded * 1.5); gameActive = false; showMutationMenu();
     }
@@ -805,17 +1192,12 @@ function showMutationMenu() {
     const modal = document.getElementById('mutationModal');
     const container = document.getElementById('mutationOptions');
 
-    // 1. Pausar el juego primero de forma segura para congelar físicas antes de tocar el DOM
     gameActive = false;
     addLog("ADVERTENCIA: Alteración del genoma detectada.");
-
-    // 2. Limpiar el contenedor de forma segura
     container.innerHTML = '';
 
-    // 3. Solo se ofrecen mutaciones de la línea ya elegida (o ambas líneas si aún no se ha elegido ninguna)
     const opciones = MUTACIONES_DATA.filter(m => !m.linea || !player.lineaElegida || m.linea === player.lineaElegida);
 
-    // 4. Crear y adjuntar los elementos al DOM uno por uno (más seguro que innerHTML masivo en bucle)
     opciones.forEach(m => {
         let nivelActual = player.mutations[m.id];
         let txtBoton = nivelActual > 0 ? `Profundizar ${m.nombre} (+${nivelActual + 1})` : `Inyectar ${m.nombre}`;
@@ -826,7 +1208,6 @@ function showMutationMenu() {
         let tagHtml = m.linea ? `<span class="mut-linea-tag linea-${m.linea}">${NOMBRES_LINEA[m.linea]}</span>` : '';
         btn.innerHTML = `${tagHtml}<strong>${txtBoton}</strong><span class="mut-desc">${m.desc}</span>`;
 
-        // Manejador de click seguro
         btn.onclick = (e) => {
             e.preventDefault();
             aplicarMutacion(m.id, m.nombre, m.linea);
@@ -835,20 +1216,16 @@ function showMutationMenu() {
         container.appendChild(btn);
     });
 
-    // 5. Mostrar el modal una vez el árbol de botones esté completamente listo en el buffer
     modal.style.display = 'block';
 }
 
 function aplicarMutacion(id, nombre, linea) {
-    // 1. Ocultar el modal inmediatamente para evitar doble click accidental
     document.getElementById('mutationModal').style.display = 'none';
 
-    // 2. Aplicar los cambios en el estado lógico del jugador
     player.mutations[id]++;
     let nuevoNivel = player.mutations[id];
     addLog(`Mutación aceptada: ${nombre} Fase ${nuevoNivel}. El cuerpo se adapta.`);
 
-    // 2b. Si esta mutación pertenece a una línea y aún no había una elegida, queda fijada para el resto de la partida
     if (linea && !player.lineaElegida) {
         player.lineaElegida = linea;
         addLog(`Línea genética ${NOMBRES_LINEA[linea]} fijada. La línea rival ya no estará disponible.`);
@@ -858,23 +1235,30 @@ function aplicarMutacion(id, nombre, linea) {
         player.speed = player.baseSpeed + (player.mutations.alas * 0.6);
     }
 
-    // 3. Reconstruir la lista de mutaciones activas en la interfaz HUD
+    actualizarListaMutacionesUI();
+
+    setTimeout(() => {
+        gameActive = true;
+    }, 50);
+}
+
+function actualizarListaMutacionesUI() {
     let listaActivas = [];
     for (let key in player.mutations) {
         if (player.mutations[key] > 0) {
             let ref = MUTACIONES_DATA.find(m => m.id === key);
             if (ref) {
                 listaActivas.push(`${ref.nombre} (Fase ${player.mutations[key]})`);
+            } else if (key === 'bossAbanico') {
+                if (player.mutations.acido > 0) {
+                    listaActivas.push(`🔥 Genoma Boss: Dispersión x${player.mutations[key] === 1 ? 3 : 5}`);
+                } else {
+                    listaActivas.push(`🛡️ Genoma Boss: Nova de Espinas`);
+                }
             }
         }
     }
-
-    document.getElementById('ui-mutations').innerHTML = "Mutaciones Activas:<br>" + listaActivas.join("<br>");
-
-    // 4. Asegurar una pequeña holgura de ejecución antes de reanudar el bucle principal (previene micro-stuttering)
-    setTimeout(() => {
-        gameActive = true;
-    }, 50);
+    document.getElementById('ui-mutations').innerHTML = "Mutaciones Activas:<br>" + (listaActivas.length > 0 ? listaActivas.join("<br>") : "Estado Físico: Humano Normal");
 }
 
 function gameLoop() { update(); render(); requestAnimationFrame(gameLoop); }
