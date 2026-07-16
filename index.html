@@ -27,8 +27,14 @@
 
     <div id="mainMenuScreen" class="overlay-screen" style="display:none;">
 
-        <!-- STATE 1: Scientist ID Gateway -->
-        <div id="idGateway" class="menu-container glass-panel">
+        <!-- ESTADO 0: comprobando si este navegador ya tiene una identidad guardada en el servidor -->
+        <div id="checkingAuth" class="menu-container glass-panel checking-auth">
+            <div class="ad-spinner"></div>
+            <p class="gateway-sub" style="margin:14px 0 0 0;">Verificando identidad...</p>
+        </div>
+
+        <!-- STATE 1: Scientist ID Gateway (solo se muestra si el navegador es nuevo) -->
+        <div id="idGateway" class="menu-container glass-panel" style="display:none;">
             <div class="menu-title">☣️ PROYECTO: BIOMASS</div>
             <p class="gateway-sub">Acceso restringido. Regístrate para entrar al laboratorio.</p>
 
@@ -45,6 +51,7 @@
 
             <button class="btn-menu" onclick="startFromMenu()">INICIAR CONTENCIÓN</button>
             <button class="btn-menu" onclick="toggleSubPanel('guidePanel')">MANUAL DEL LABORATORIO</button>
+            <button class="btn-menu" onclick="toggleSubPanel('rankingPanel')">CLASIFICACIÓN Y JUGADORES</button>
             <button class="btn-menu" onclick="toggleSubPanel('optionsPanel')">CONFIGURACIÓN MULTIMEDIA</button>
 
             <div id="guidePanel" class="sub-panel">
@@ -54,6 +61,16 @@
                 • Objetivo: Recolecta ADN infectado para estabilizar (o mutar) tu propio cuerpo.<br><br>
                 <strong style="color:#ffaa00;">TECNOLOGÍA EXPERIMENTAL:</strong><br>
                 • ☢️ Detonación Térmica | ⚡ Cañón de Iones (3s)
+            </div>
+
+            <div id="rankingPanel" class="sub-panel">
+                <strong style="color:#4af626;">🏆 TOP SUPERVIVIENTES</strong>
+                <table class="leaderboard-table" style="margin-top:6px;">
+                    <thead><tr><th>POS</th><th>CIENTÍFICO</th><th>SCORE</th></tr></thead>
+                    <tbody id="menuLeaderboardBody"><tr><td colspan="3" style="color:#666;">Cargando...</td></tr></tbody>
+                </table>
+                <strong style="color:#54a0ff; display:block; margin-top:14px;">📋 JUGADORES RECIENTES</strong>
+                <ul id="recentPlayersList" class="recent-players-list"><li style="color:#666;">Cargando...</li></ul>
             </div>
 
             <div id="optionsPanel" class="sub-panel" style="text-align: center;">

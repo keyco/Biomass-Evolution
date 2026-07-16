@@ -137,6 +137,32 @@ h1 {
     letter-spacing: 0.5px;
 }
 
+.checking-auth {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 34px 25px;
+}
+
+.recent-players-list {
+    list-style: none;
+    margin: 6px 0 0 0;
+    padding: 0;
+    max-height: 140px;
+    overflow-y: auto;
+    text-align: left;
+    font-family: monospace;
+    font-size: 12px;
+}
+.recent-players-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 4px;
+    border-bottom: 1px solid rgba(74,246,38,0.12);
+    color: #ddd;
+}
+.recent-players-list li span.rp-time { color: #6a8f70; font-size: 10.5px; }
+
 .gateway-error {
     color: #ff4757;
     font-size: 11px;

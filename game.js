@@ -8,8 +8,10 @@ function addLog(text) {
 
 function toggleSubPanel(panelId) {
     let panel = document.getElementById(panelId);
-    ['guidePanel', 'optionsPanel'].forEach(id => { if(id !== panelId) document.getElementById(id).style.display = 'none'; });
-    panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
+    ['guidePanel', 'optionsPanel', 'rankingPanel'].forEach(id => { if(id !== panelId) document.getElementById(id).style.display = 'none'; });
+    let willOpen = panel.style.display !== 'block';
+    panel.style.display = willOpen ? 'block' : 'none';
+    if (willOpen && panelId === 'rankingPanel') loadRankingPanel();
 }
 
 // --- ENGINES AUDIO ---
@@ -227,7 +229,95 @@ function initLoadingScreen() {
 function dismissLoadingScreen() {
     document.getElementById('loadingScreen').style.display = 'none';
     document.getElementById('mainMenuScreen').style.display = 'flex';
+    tryAutoLogin();
+}
+
+// Si este navegador ya tiene un playerId conocido por el servidor, salta el gateway
+// del nombre directo al laboratorio. Si es nuevo (o el servidor no responde), pide el ID.
+async function tryAutoLogin() {
+    document.getElementById('checkingAuth').style.display = 'flex';
+    document.getElementById('idGateway').style.display = 'none';
+    document.getElementById('labHub').style.display = 'none';
+
+    try {
+        const res = await fetch(`/api/login?playerId=${encodeURIComponent(playerId)}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.player) {
+                playerName = data.player;
+                document.getElementById('checkingAuth').style.display = 'none';
+                document.getElementById('welcomeBack').innerText = `Bienvenido de nuevo, ${data.player}.`;
+                document.getElementById('labHub').style.display = 'block';
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('auto-login check failed:', err);
+    }
+
+    // Navegador nuevo (o backend inaccesible): pide el nombre como antes.
+    document.getElementById('checkingAuth').style.display = 'none';
+    document.getElementById('idGateway').style.display = 'block';
     document.getElementById('playerName').focus();
+}
+
+// --- PANEL DE CLASIFICACIÓN Y JUGADORES RECIENTES (dentro del menú) ---
+async function loadRankingPanel() {
+    const scoreBody = document.getElementById('menuLeaderboardBody');
+    const recentList = document.getElementById('recentPlayersList');
+
+    try {
+        const res = await fetch('/api/leaderboard?limit=5');
+        const data = await res.json();
+        const lb = data.leaderboard || [];
+        scoreBody.innerHTML = '';
+        if (lb.length === 0) {
+            scoreBody.innerHTML = `<tr><td colspan="3" style="color:#666;">Aún no hay puntajes registrados.</td></tr>`;
+        } else {
+            lb.forEach((row, i) => {
+                let tr = document.createElement('tr');
+                tr.style.color = i === 0 ? '#fffa50' : '#fff';
+                let tdPos = document.createElement('td'); tdPos.textContent = `#${i + 1}`;
+                let tdName = document.createElement('td'); tdName.textContent = row.name;
+                let tdScore = document.createElement('td'); let strong = document.createElement('strong'); strong.textContent = row.score; tdScore.appendChild(strong);
+                tr.appendChild(tdPos); tr.appendChild(tdName); tr.appendChild(tdScore);
+                scoreBody.appendChild(tr);
+            });
+        }
+    } catch (err) {
+        scoreBody.innerHTML = `<tr><td colspan="3" style="color:#666;">No se pudo cargar el ranking.</td></tr>`;
+    }
+
+    try {
+        const res = await fetch('/api/recent-players?limit=8');
+        const data = await res.json();
+        const players = data.players || [];
+        recentList.innerHTML = '';
+        if (players.length === 0) {
+            recentList.innerHTML = `<li style="color:#666;">Aún no hay jugadores registrados.</li>`;
+        } else {
+            players.forEach(p => {
+                let li = document.createElement('li');
+                let nameSpan = document.createElement('span'); nameSpan.textContent = p.name;
+                let timeSpan = document.createElement('span'); timeSpan.className = 'rp-time'; timeSpan.textContent = timeAgo(p.lastSeen);
+                li.appendChild(nameSpan); li.appendChild(timeSpan);
+                recentList.appendChild(li);
+            });
+        }
+    } catch (err) {
+        recentList.innerHTML = `<li style="color:#666;">No se pudo cargar la lista.</li>`;
+    }
+}
+
+function timeAgo(timestamp) {
+    if (!timestamp) return '';
+    let diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (diffSec < 60) return 'ahora';
+    let diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `hace ${diffMin}m`;
+    let diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `hace ${diffH}h`;
+    return `hace ${Math.floor(diffH / 24)}d`;
 }
 
 // --- STATE 1 -> STATE 2: Scientist ID Gateway ---
@@ -325,6 +415,7 @@ function restartGame() {
 function returnToMenu() {
     resetGameState();
     document.getElementById('gameOverScreen').style.display = 'none';
+    document.getElementById('checkingAuth').style.display = 'none';
     document.getElementById('idGateway').style.display = 'none';
     document.getElementById('labHub').style.display = 'block';
     document.getElementById('mainMenuScreen').style.display = 'flex';

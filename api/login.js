@@ -37,12 +37,27 @@ function resolvePlayerId(incoming) {
 }
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Método no permitido' });
-    }
-
     if (!redisUrl || !redisToken) {
         return res.status(500).json({ error: 'Backend no configurado (faltan variables de entorno de Upstash)' });
+    }
+
+    // GET /api/login?playerId=xxx -> "¿ya conozco a este navegador?" (auto-login silencioso)
+    if (req.method === 'GET') {
+        const incomingId = req.query.playerId;
+        if (typeof incomingId !== 'string' || !/^[a-zA-Z0-9-]{8,64}$/.test(incomingId)) {
+            return res.status(400).json({ success: false, error: 'playerId inválido' });
+        }
+        try {
+            const name = await redisCommand(['HGET', `player:${incomingId}`, 'name']);
+            if (!name) return res.status(404).json({ success: false });
+            return res.status(200).json({ success: true, player: name, playerId: incomingId });
+        } catch (error) {
+            return res.status(500).json({ error: 'Error al conectar con la base de datos: ' + error.message });
+        }
+    }
+
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Método no permitido' });
     }
 
     const { name, playerId: incomingId } = req.body || {};
