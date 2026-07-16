@@ -1,0 +1,9 @@
+{
+  "name": "biomass-evolution",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Biomass Evolution: Paciente Cero — juego + leaderboard serverless (Vercel + Upstash Redis)",
+  "engines": {
+    "node": ">=18"
+  }
+}
