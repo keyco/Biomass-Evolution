@@ -278,6 +278,109 @@ displayLeaderboard();
 window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ' || e.code === 'Space') triggerPulse(); });
 window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
+// --- JOYSTICK VIRTUAL (controles táctiles) ---
+let joystickVector = { x: 0, y: 0 };
+let joystickActive = false;
+let joystickTouchId = null;
+
+function initJoystick() {
+    const base = document.getElementById('joystickBase');
+    const stick = document.getElementById('joystickStick');
+    const maxDist = 34;
+
+    function getCenter() {
+        const rect = base.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+
+    function pointFromEvent(e) {
+        if (e.changedTouches && e.changedTouches.length) {
+            if (joystickTouchId === null) return e.changedTouches[0];
+            for (let t of e.changedTouches) { if (t.identifier === joystickTouchId) return t; }
+            return null;
+        }
+        return e;
+    }
+
+    function handleStart(e) {
+        joystickActive = true;
+        if (e.changedTouches && e.changedTouches.length) joystickTouchId = e.changedTouches[0].identifier;
+        handleMove(e);
+    }
+
+    function handleMove(e) {
+        if (!joystickActive) return;
+        const touch = pointFromEvent(e);
+        if (!touch) return;
+        const center = getCenter();
+        let dx = touch.clientX - center.x;
+        let dy = touch.clientY - center.y;
+        let dist = Math.hypot(dx, dy);
+        let clamped = Math.min(maxDist, dist);
+        let angle = Math.atan2(dy, dx);
+        let sx = Math.cos(angle) * clamped;
+        let sy = Math.sin(angle) * clamped;
+        stick.style.transform = `translate(${sx}px, ${sy}px)`;
+
+        if (dist > 8) {
+            joystickVector.x = Math.cos(angle) * (clamped / maxDist);
+            joystickVector.y = Math.sin(angle) * (clamped / maxDist);
+        } else {
+            joystickVector.x = 0; joystickVector.y = 0;
+        }
+        if (e.cancelable) e.preventDefault();
+    }
+
+    function handleEnd() {
+        joystickActive = false;
+        joystickTouchId = null;
+        joystickVector.x = 0; joystickVector.y = 0;
+        stick.style.transform = 'translate(0px, 0px)';
+    }
+
+    base.addEventListener('touchstart', handleStart, { passive: false });
+    base.addEventListener('touchmove', handleMove, { passive: false });
+    base.addEventListener('touchend', handleEnd);
+    base.addEventListener('touchcancel', handleEnd);
+    // soporte de mouse (útil para probar el joystick en escritorio)
+    base.addEventListener('mousedown', handleStart);
+    window.addEventListener('mousemove', e => { if (joystickActive) handleMove(e); });
+    window.addEventListener('mouseup', handleEnd);
+}
+initJoystick();
+
+// --- PANTALLA COMPLETA ---
+function toggleFullscreen() {
+    const btn = document.getElementById('fullscreenBtn');
+    if (!document.fullscreenElement) {
+        (document.documentElement.requestFullscreen?.() || Promise.resolve())
+            .then(() => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); })
+            .catch(() => {});
+    } else {
+        document.exitFullscreen?.();
+    }
+}
+document.addEventListener('fullscreenchange', () => {
+    const btn = document.getElementById('fullscreenBtn');
+    if (btn) btn.innerText = document.fullscreenElement ? '⤢' : '⛶';
+});
+
+// --- AVISO DE ROTAR DISPOSITIVO ---
+let rotateDismissed = false;
+function dismissRotateOverlay() {
+    rotateDismissed = true;
+    document.getElementById('rotateOverlay').style.display = 'none';
+}
+function checkOrientation() {
+    if (rotateDismissed) return;
+    const isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const isPortrait = window.innerHeight > window.innerWidth;
+    document.getElementById('rotateOverlay').style.display = (isTouch && isPortrait) ? 'flex' : 'none';
+}
+window.addEventListener('resize', checkOrientation);
+window.addEventListener('orientationchange', checkOrientation);
+checkOrientation();
+
 function createDamageNumber(x, y, amount, isSpecial = false) {
     damageNumbers.push({ worldX: x, worldY: y, text: Math.round(amount), life: 35, color: isSpecial ? '#fffa50' : '#ff4757', size: isSpecial ? 20 : 14 });
 }
@@ -325,6 +428,11 @@ function update() {
     if (keys['arrowleft'] || keys['a']) moveX = -player.speed;
     if (keys['arrowright'] || keys['d']) moveX = player.speed;
     if (moveX !== 0 && moveY !== 0) { moveX *= 0.7071; moveY *= 0.7071; }
+
+    if (joystickVector.x !== 0 || joystickVector.y !== 0) {
+        moveX = joystickVector.x * player.speed;
+        moveY = joystickVector.y * player.speed;
+    }
     player.worldX += moveX; player.worldY += moveY;
 
     if (player.pulseCooldown > 0) player.pulseCooldown--;
