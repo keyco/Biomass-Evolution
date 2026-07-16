@@ -129,6 +129,14 @@
         </div>
     </div>
 
+    <!-- ROTATE DEVICE: aviso de máxima prioridad si un móvil está en vertical -->
+    <div id="rotateOverlay" class="rotate-overlay" style="display:none;">
+        <div class="rotate-icon">📱</div>
+        <div class="rotate-title">GIRA TU DISPOSITIVO</div>
+        <div class="rotate-sub">Biomass Evolution se juega mejor en horizontal</div>
+        <button class="btn-menu rotate-dismiss" onclick="dismissRotateOverlay()">CONTINUAR EN VERTICAL</button>
+    </div>
+
     <h1>Biomass Evolution: Paciente Cero</h1>
 
     <div id="gameContainer">
@@ -140,13 +148,21 @@
             <span style="color: #54a0ff; font-weight: bold;">[ESPACIO] Sobrecarga Nivel <span id="ui-pulse-lvl">1</span>: <span id="ui-cooldown">LISTO</span></span>
             <div id="ui-mutations" style="color: #4af626; margin-top: 6px; font-size: 11px; line-height: 1.3;">Estado Físico: Humano Normal</div>
         </div>
-        
+
+        <button id="fullscreenBtn" class="icon-btn" onclick="toggleFullscreen()" title="Pantalla completa">⛶</button>
+
         <div id="mutationModal">
             <h3 style="color: #4af626; margin-top: 0; font-family: monospace;">ADAPTACIÓN GENÉTICA</h3>
             <div id="mutationOptions"></div>
         </div>
 
         <canvas id="gameCanvas" width="800" height="500"></canvas>
+
+        <!-- CONTROLES TÁCTILES: solo visibles en pantallas táctiles (ver CSS) -->
+        <div id="joystickBase">
+            <div id="joystickStick"></div>
+        </div>
+        <button id="pulseBtn" onclick="triggerPulse()">🛡</button>
     </div>
 
     <div class="log-box" id="logBox">> Sistemas en línea. Falla de contención detectada en el Sector 4.</div>
